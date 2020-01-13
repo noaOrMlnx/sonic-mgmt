@@ -1,21 +1,16 @@
+import pdb
 import pytest
 import os
 import pprint
 from loganalyzer import LogAnalyzer, LogAnalyzerError
-from common import reboot, port_toggle
-import pdb
-import optparse
 import time
 from random import randint
+from log_messages import *
 import logging 
 logger = logging.getLogger(__name__)
 
-LOOP_RANGE = 10
-LOOP_DELAY=10
-SINCE=0
-rules_list = ['acl_rules']
-teardown_list = []
-
+DEFAULT_LOOP_RANGE = 10
+DEFAULT_LOOP_DELAY = 10
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 DUT_TMP_DIR = os.path.join('tmp', os.path.basename(BASE_DIR))
@@ -24,16 +19,12 @@ TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
 
 ACL_TABLE_TEMPLATE = 'acltb_table.j2'
 ACL_RULES_FULL_TEMPLATE = 'acltb_test_rules.j2'
-ACL_RULES_PART_TEMPLATES = tuple('acltb_test_rules_part_{}.j2'.format(i) for i in xrange(1, 3))
 ACL_REMOVE_RULES_FILE = 'acl_rules_del.json'
 ACL_RULE_PERSISTENT_FILE = 'acl_rule_persistent.json'
 ACL_RULE_PERSISTENT_DEL_FILE = 'acl_rule_persistent-del.json'
 ACL_RULE_PERSISTENT_J2 = 'acl_rule_persistent.json.j2'
 
-pytestmark = [
-    pytest.mark.acl,
-    pytest.mark.disable_loganalyzer  # disable automatic loganalyzer
-]
+DEFAULT_ACL_STAGE = 'ingress'
 
 
 #########################################
@@ -41,36 +32,24 @@ pytestmark = [
 #########################################
 
 
-DST_IP_TOR = '172.16.1.0'
-DST_IP_TOR_FORWARDED = '172.16.2.0'
-DST_IP_TOR_BLOCKED = '172.16.3.0'
-DST_IP_SPINE = '192.168.0.0'
-DST_IP_SPINE_FORWARDED = '192.168.0.16'
-DST_IP_SPINE_BLOCKED = '192.168.0.17'
-
-LOG_EXPECT_ACL_TABLE_CREATE_RE = '.*Created ACL table.*'
-LOG_EXPECT_ACL_TABLE_REMOVE_RE = '.*Successfully deleted ACL table.*'
-LOG_EXPECT_ACL_RULE_CREATE_RE = '.*Successfully created ACL rule.*'
-LOG_EXPECT_ACL_RULE_REMOVE_RE = '.*Successfully deleted ACL rule.*'
-
 
 def setup_acl_rules(duthost, acl_setup, acl_table):
-        """
-        setup rules on DUT
-        :param dut: dut host
-        :param setup: setup information
-        :param acl_table: acl table creating fixture
-        :return:
-        """
-        name = acl_table['name']
-        dut_conf_file_path = os.path.join(acl_setup['dut_tmp_dir'], 'acl_rules_{}.json'.format(name))
+    """
+    setup rules on DUT
+    :param dut: dut host
+    :param setup: setup information
+    :param acl_table: acl table creating fixture
+    :return:
+    """
+    name = acl_table['name']
+    dut_conf_file_path = os.path.join(acl_setup['dut_tmp_dir'], 'acl_rules_{}.json'.format(name))
 
-        logger.info('generating config for ACL rules, ACL table {}'.format(name))
-        duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULES_FULL_TEMPLATE),
-                     dest=dut_conf_file_path)
+    logger.info('generating config for ACL rules, ACL table {}'.format(name))
+    duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULES_FULL_TEMPLATE),
+                    dest=dut_conf_file_path)
 
-        logger.info('applying {}'.format(dut_conf_file_path))
-        duthost.command('config acl update full {}'.format(dut_conf_file_path))
+    logger.info('applying {}'.format(dut_conf_file_path))
+    duthost.command('config acl update full {}'.format(dut_conf_file_path))       
 
 
 @pytest.fixture(scope='function')
@@ -84,6 +63,7 @@ def acl_rules(duthost, localhost, acl_setup, acl_table):
     :param acl_table: table creating fixture
     :return:
     """
+    pdb.set_trace()
     loganalyzer = LogAnalyzer(ansible_host=duthost, marker_prefix='acl')
     loganalyzer.load_common_config()
 
@@ -93,7 +73,7 @@ def acl_rules(duthost, localhost, acl_setup, acl_table):
             setup_acl_rules(duthost, acl_setup, acl_table)
     except LogAnalyzerError as err:
         # cleanup config DB in case of log analysis error
-        teardown_acl(duthost, acl_setup)
+        teardown_acl(duthost)
         raise err    
 
     try:
@@ -101,7 +81,7 @@ def acl_rules(duthost, localhost, acl_setup, acl_table):
     finally:
         loganalyzer.expect_regex = [LOG_EXPECT_ACL_RULE_REMOVE_RE]
         with loganalyzer:
-            teardown_acl(duthost, acl_setup)
+            teardown_acl(duthost)
 
 
 
@@ -113,6 +93,7 @@ def acl_setup(duthost, testbed):
     :param testbed: Testbed object
     :return: dictionary with all test required information
     """  
+    pdb.set_trace()
     ports = []
     port_channels = []
     acl_table_ports = []
@@ -124,7 +105,10 @@ def acl_setup(duthost, testbed):
             ports.append(dut_port)
 
     # get the list of port channels
-    port_channels = mg_facts['minigraph_portchannels']
+    try: 
+        port_channels = mg_facts['minigraph_portchannels']
+    except:
+        port_channels = []
     acl_table_ports += ports
     acl_table_ports += port_channels
 
@@ -148,25 +132,13 @@ def acl_setup(duthost, testbed):
 
 
 @pytest.fixture(scope='function')
-def stage(request):
-    """
-    small fixture to parametrize test for ingres/egress stage testing
-    :param request: pytest request
-    :return: stage parameter
-    """
-
-    return 'ingress'
-
-
-@pytest.fixture(scope='function')
-def acl_table_config(duthost, acl_setup, stage):
+def acl_table_config(duthost, acl_setup):
 
     """
     generate ACL table configuration files and deploy them on DUT;
     after test run cleanup artifacts on DUT
     :param duthost: DUT host object
     :param setup: setup parameters
-    :param stage: stage
     :return: dictionary of table name and matching configuration file
     """
 
@@ -175,13 +147,13 @@ def acl_table_config(duthost, acl_setup, stage):
         'ingress': 'DATAINGRESS',
         'egress': 'DATAEGRESS',
     }
-    acl_table_name = tables_map[stage]
+    acl_table_name = tables_map[DEFAULT_ACL_STAGE]
     tmp_dir = acl_setup['dut_tmp_dir']
 
     acl_table_vars = {
         'acl_table_name':  acl_table_name,
         'acl_table_ports': acl_setup['acl_table_ports'],
-        'acl_table_stage': stage,
+        'acl_table_stage': DEFAULT_ACL_STAGE,
         'acl_table_type': 'L3',
     }
 
@@ -207,14 +179,13 @@ def acl_table(duthost, acl_table_config):
     :param acl_table_config: ACL table configuration dictionary
     :return: forwards acl_table_config
     """
-
+    pdb.set_trace()
     name = acl_table_config['name']
     conf = acl_table_config['config_file']
     loganalyzer = LogAnalyzer(ansible_host=duthost, marker_prefix='acl_rules')
     loganalyzer.load_common_config()
 
     try:
-        pdb.set_trace()
         loganalyzer.expect_regex = [LOG_EXPECT_ACL_TABLE_CREATE_RE]
         with loganalyzer:
             logger.info('creating ACL table: applying {}'.format(conf))
@@ -237,14 +208,13 @@ def acl_table(duthost, acl_table_config):
         duthost.command('config save -y')
 
 
-def teardown_acl(dut, acl_setup):
+def teardown_acl(dut):
     """
     teardown ACL rules after test by applying empty configuration
     :param dut: DUT host object
     :param setup: setup information
     :return:
     """
-    pdb.set_trace()
     dst = DUT_TMP_DIR
     logger.info('removing all ACL rules')
     # copy rules remove configuration
@@ -256,7 +226,7 @@ def teardown_acl(dut, acl_setup):
 
 
 @pytest.fixture(scope='function')
-def acl(duthost, acl_setup, acl_table):
+def acl(duthost, acl_rules, acl_setup, acl_table):
     """
     setup rules on DUT
         :param dut: dut host
@@ -288,15 +258,21 @@ MIRROR_RUN_DIR = os.path.join('mirror_tmp', os.path.basename(BASE_DIR))
 ACL_TABLE_NAME = "EVERFLOW"
 DEFAULT_MIRROR_STAGE = "ingress"
 
-LOG_EXCEPT_EVERFLOW_TABLE_CREATE = '.*Create ACL Group member*.'
-LOG_EXCEPT_EVERFLOW_TABLE_DELETE = '.*Successfully deleted ACL table*.'
-LOG_EXCEPT_MIRROR_SESSION_REMOVE = '.*Removed mirror session*.'
-
 SESSION_NAME = "test_session_1"
 
 tables_map = {
     'ingress': 'DATAINGRESS',
     'egress': 'DATAEGRESS',
+}
+
+session_info = {
+    'name' : SESSION_NAME,
+    'src_ip' : "1.1.1.1",
+    'dst_ip' : "2.2.2.2",
+    'ttl' : "1",
+    'dscp' : "8",
+    'gre' : "0x6558",
+    'queue' : "0"
 }
 
 
@@ -409,26 +385,13 @@ def mirror_setup(duthost):
     logger.info('setup variables {}'.format(pprint.pformat(setup_info)))
     yield setup_info
     
-    teardown_mirroring(duthost, mirror_setup)
+    teardown_mirroring(duthost)
     logger.info('removing {}'.format(MIRROR_RUN_DIR))
     duthost.command('rm -rf {}'.format(MIRROR_RUN_DIR))
 
 
 @pytest.fixture(scope='function')
-def session_info():
-    yield {
-    'name' : SESSION_NAME,
-    'src_ip' : "1.1.1.1",
-    'dst_ip' : "2.2.2.2",
-    'ttl' : "1",
-    'dscp' : "8",
-    'gre' : "0x6558",
-    'queue' : "0" 
-    }
-
-
-@pytest.fixture(scope='function')
-def mirror_config(duthost, session_info):
+def mirror_config(duthost):
 
     logger.info("Adding mirror_session to dut")
     acl_rule_file = os.path.join(MIRROR_RUN_DIR, ACL_RULE_PERSISTENT_FILE)
@@ -457,7 +420,7 @@ def mirroring(request, duthost, mirror_setup, mirror_table, mirror_config):
     logger.info('Configured Everflow')
 
 
-def teardown_mirroring(dut, mirror_setup):
+def teardown_mirroring(dut):
     """
     teardown EVERFLOW rules after test by applying empty configuration
     :param dut: DUT host object
@@ -480,10 +443,6 @@ def config(request):
     """
     fixture to add configurations on setup by received parameters.
     """
-    pdb.set_trace()
-    fixt_rule = request.param + '_rules'
-    if fixt_rule in rules_list:
-        request.getfixturevalue(fixt_rule)
     return request.getfixturevalue(request.param)
 
 
@@ -496,16 +455,10 @@ def test_techsupport(request, config, duthost, testbed):
     :param testbed: testbed
     """
     pdb.set_trace()
-    loop_range = LOOP_RANGE
-    loop_delay = LOOP_DELAY
-    if request.config.getoption("--loop_num"):
-        loop_range = request.config.getoption("--loop_num")
-    if request.config.getoption("--loop_delay"):
-        loop_delay = request.config.getoption("--loop_delay")
-    if request.config.getoption("--logs_since"):
-        since = request.config.getoption("--logs_since")
-    else:
-        since = randint(1, 60)
+    loop_range = request.config.getoption("--loop_num") or DEFAULT_LOOP_RANGE
+    loop_delay = request.config.getoption("--loop_delay") or DEFAULT_LOOP_DELAY
+    since = request.config.getoption("--logs_since") or randint(1, 60)
+    
     logger.debug("loop range is {} and loop delay is {}".format(loop_range, loop_delay))
 
     for i in range(loop_range):
