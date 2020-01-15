@@ -65,7 +65,6 @@ def pytest_addoption(parser):
                     help="Change default loop range for show techsupport command")
     parser.addoption("--loop_delay", action="store", default=10, type=int,
                     help="Change default loops delay")
-    parser.addoption("--mirror_stage", action="store", default=None, help="Change mirror stage")
     parser.addoption("--logs_since", action="store", type=int, 
                     help="number of minutes for show techsupport command")
 
