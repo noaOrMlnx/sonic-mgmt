@@ -16,20 +16,18 @@ DUT_TMP_DIR = os.path.join('tmp', os.path.basename(BASE_DIR))
 FILES_DIR = os.path.join(BASE_DIR, 'files')
 TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
 
-ACL_TABLE_TEMPLATE = 'acltb_table.j2'
+
+#########################################
+############### ACL PART ################
+#########################################
+
 ACL_RULES_FULL_TEMPLATE = 'acltb_test_rules.j2'
 ACL_REMOVE_RULES_FILE = 'acl_rules_del.json'
 ACL_RULE_PERSISTENT_FILE = 'acl_rule_persistent.json'
 ACL_RULE_PERSISTENT_DEL_FILE = 'acl_rule_persistent-del.json'
 ACL_RULE_PERSISTENT_J2 = 'acl_rule_persistent.json.j2'
 
-DEFAULT_ACL_STAGE = 'ingress'
 ACL_TABLE_NAME = 'DATAACL'
-
-#########################################
-############### ACL PART ################
-#########################################
-
 
 
 def setup_acl_rules(duthost, acl_setup):
@@ -238,3 +236,5 @@ def test_techsupport(request, config, duthost, testbed):
         duthost.command("show techsupport --since='{} minute ago'".format(since))
         logger.debug("Sleeping for {} seconds".format(loop_delay))
         time.sleep(loop_delay)
+
+
