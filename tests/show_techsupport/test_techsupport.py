@@ -1,34 +1,46 @@
 import pytest
 import os
+import ptf
+import ptf.testutils as testutils
 import pprint
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 import time
 from random import randint
+from ansible.module_utils.basic import *
 from log_messages import *
-import logging 
+import logging
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOOP_RANGE = 10
 DEFAULT_LOOP_DELAY = 10
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
-DUT_TMP_DIR = os.path.join('tmp', os.path.basename(BASE_DIR))
+ACL_TMP_DIR = os.path.basename('acl_tmp')
+
 FILES_DIR = os.path.join(BASE_DIR, 'files')
 TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
-
-
-#########################################
-############### ACL PART ################
-#########################################
 
 ACL_RULES_FULL_TEMPLATE = 'acltb_test_rules.j2'
 ACL_REMOVE_RULES_FILE = 'acl_rules_del.json'
 ACL_RULE_PERSISTENT_FILE = 'acl_rule_persistent.json'
 ACL_RULE_PERSISTENT_DEL_FILE = 'acl_rule_persistent-del.json'
 ACL_RULE_PERSISTENT_J2 = 'acl_rule_persistent.json.j2'
-
 ACL_TABLE_NAME = 'DATAACL'
 
+MIRROR_RUN_DIR = os.path.basename('mirror_tmp')
+
+EVERFLOW_TABLE_NAME = "EVERFLOW"
+SESSION_INFO = {
+    'name': "test_session_1",
+    'src_ip': "1.1.1.1",
+    'dst_ip': "2.2.2.2",
+    'ttl': "1",
+    'dscp': "8",
+    'gre': "0x8949",
+    'queue': "0"
+}
+
+# ACL PART #
 
 def setup_acl_rules(duthost, acl_setup):
     """
@@ -46,15 +58,14 @@ def setup_acl_rules(duthost, acl_setup):
     extra_vars = {
         'acl_table_name':  name,
     }
-
     logger.info('extra variables for ACL table:\n{}'.format(pprint.pformat(extra_vars)))
     duthost.host.options['variable_manager'].extra_vars.update(extra_vars)
 
     duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULES_FULL_TEMPLATE),
-                    dest=dut_conf_file_path)
+                                        dest=dut_conf_file_path)
 
     logger.info('applying {}'.format(dut_conf_file_path))
-    duthost.command('config acl update full {}'.format(dut_conf_file_path))       
+    duthost.command('config acl update full {}'.format(dut_conf_file_path))
 
 
 @pytest.fixture(scope='function')
@@ -63,31 +74,28 @@ def acl_setup(duthost):
     setup fixture gathers all test required information from DUT facts and testbed
     :param duthost: DUT host object
     :return: dictionary with all test required information
-    """  
-
-    logger.info('creating temporary folder for test {}'.format(DUT_TMP_DIR))
-    duthost.command("mkdir -p {}".format(DUT_TMP_DIR))
+    """
+    logger.info('creating temporary folder for test {}'.format(ACL_TMP_DIR))
+    duthost.command("mkdir -p {}".format(ACL_TMP_DIR))
+    tmp_path = duthost.tempfile(path=ACL_TMP_DIR, state='directory', prefix='acl', suffix="")['path']
 
     setup_information = {
-        'dut_tmp_dir': DUT_TMP_DIR,
+        'dut_tmp_dir': tmp_path,
     }
 
     logger.info('setup variables {}'.format(pprint.pformat(setup_information)))
 
     yield setup_information
 
-    logger.info('removing {}'.format(DUT_TMP_DIR))
-    duthost.command('rm -rf {}'.format(DUT_TMP_DIR))
 
-
-def teardown_acl(dut):
+def teardown_acl(dut, acl_setup):
     """
     teardown ACL rules after test by applying empty configuration
     :param dut: DUT host object
     :param setup: setup information
     :return:
     """
-    dst = DUT_TMP_DIR
+    dst = acl_setup['dut_tmp_dir']
     logger.info('removing all ACL rules')
     # copy rules remove configuration
     dut.copy(src=os.path.join(FILES_DIR, ACL_REMOVE_RULES_FILE), dest=dst)
@@ -114,85 +122,97 @@ def acl(duthost, acl_setup):
             setup_acl_rules(duthost, acl_setup)
     except LogAnalyzerError as err:
         # cleanup config DB in case of log analysis error
-        teardown_acl(duthost)
-        raise err    
+        teardown_acl(duthost, acl_setup)
+        raise err
 
     try:
         yield
     finally:
         loganalyzer.expect_regex = [LOG_EXPECT_ACL_RULE_REMOVE_RE]
         with loganalyzer:
-            teardown_acl(duthost)
+            teardown_acl(duthost, acl_setup)
 
 
+# MIRRORING PART #
 
+@pytest.fixture(scope='function')
+def neighbor_ip(duthost, testbed):
+    # ptf-32 topo is not supported in mirroring
+    if testbed['topo']['name'] == 'ptf32':
+        pytest.skip('Unsupported Topology')
 
-#########################################
-########### MIRRORING PART ##############
-#########################################
+    mg_facts = duthost.minigraph_facts(host=duthost.hostname)['ansible_facts']
+    dst_ip = mg_facts["minigraph_portchannel_interfaces"][0]['peer_addr']
+    yield str(dst_ip)
 
-
-MIRROR_RUN_DIR = os.path.join('mirror_tmp', os.path.basename(BASE_DIR))
-EVERFLOW_TABLE_NAME = "EVERFLOW"
-SESSION_NAME = "test_session_1"
-session_info = {
-    'name' : SESSION_NAME,
-    'src_ip' : "1.1.1.1",
-    'dst_ip' : "2.2.2.2",
-    'ttl' : "1",
-    'dscp' : "8",
-    'gre' : "0x6558",
-    'queue' : "0"
-}
 
 @pytest.fixture(scope='function')
 def mirror_setup(duthost):
     """
     setup fixture
     """
-    
     logger.debug("creating running directory ...")
     duthost.command('mkdir -p {}'.format(MIRROR_RUN_DIR))
+    tmp_path = duthost.tempfile(path=MIRROR_RUN_DIR, state='directory', prefix='mirror', suffix="")['path']
 
     setup_info = {
-        'dut_tmp_dir': MIRROR_RUN_DIR,
+        'dut_tmp_dir': tmp_path,
     }
     logger.info('setup variables {}'.format(pprint.pformat(setup_info)))
     yield setup_info
-    
-    teardown_mirroring(duthost)
 
 
 @pytest.fixture(scope='function')
-def mirroring(duthost, mirror_setup):
+def gre_version(duthost):
+    asic_type = duthost.facts['asic_type']
+    if asic_type in ["mellanox"]:
+        SESSION_INFO['gre'] = 0x8949 # Mellanox specific
+    else:
+        SESSION_INFO['gre'] = 0x6558
+
+
+
+@pytest.fixture(scope='function')
+def mirroring(duthost, neighbor_ip, mirror_setup, gre_version):
     """
     fixture gathers all configuration fixtures
     :param duthost: dut host
-    :param mirror_setup: mirror_setup fixture 
+    :param mirror_setup: mirror_setup fixture
     :param mirror_config: mirror_config fixture
     """
 
     logger.info("Adding mirror_session to dut")
-    acl_rule_file = os.path.join(MIRROR_RUN_DIR, ACL_RULE_PERSISTENT_FILE)
+    acl_rule_file = os.path.join(mirror_setup['dut_tmp_dir'], ACL_RULE_PERSISTENT_FILE)
     extra_vars = {
-        'acl_table_name':  EVERFLOW_TABLE_NAME,    
+        'acl_table_name':  EVERFLOW_TABLE_NAME,
     }
     logger.info('extra variables for MIRROR table:\n{}'.format(pprint.pformat(extra_vars)))
     duthost.host.options['variable_manager'].extra_vars.update(extra_vars)
 
     duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULE_PERSISTENT_J2), dest=acl_rule_file)
-    
     duthost.command('config mirror_session add {} {} {} {} {} {} {}'
-    .format(session_info['name'], session_info['src_ip'], session_info['dst_ip'],
-     session_info['dscp'], session_info['ttl'], session_info['gre'], session_info['queue']))
+    .format(SESSION_INFO['name'], SESSION_INFO['src_ip'], neighbor_ip,
+     SESSION_INFO['dscp'], SESSION_INFO['ttl'], SESSION_INFO['gre'], SESSION_INFO['queue']))
 
     logger.info('Loading acl mirror rules ...')
-    load_rule_cmd = "acl-loader update full {} --session_name={}".format(acl_rule_file, session_info['name']) 
+    load_rule_cmd = "acl-loader update full {} --session_name={}".format(acl_rule_file, SESSION_INFO['name'])
     duthost.command('{}'.format(load_rule_cmd))
 
+    try:
+        yield
+    finally: 
+        loganalyzer = LogAnalyzer(ansible_host=duthost, marker_prefix='acl')
+        loganalyzer.load_common_config()
+
+        try:
+            loganalyzer.expect_regex = [LOG_EXCEPT_MIRROR_SESSION_REMOVE]
+            with loganalyzer:
+                teardown_mirroring(duthost, mirror_setup['dut_tmp_dir'])
+        except LogAnalyzerError as err:
+            raise err
 
 
-def teardown_mirroring(dut):
+def teardown_mirroring(dut, tmp_path):
     """
     teardown EVERFLOW rules after test by applying empty configuration
     :param dut: DUT host object
@@ -201,12 +221,10 @@ def teardown_mirroring(dut):
     """
     logger.info('removing MIRRORING rules')
     # copy rules remove configuration
-    dst = os.path.join(MIRROR_RUN_DIR, ACL_RULE_PERSISTENT_DEL_FILE)
+    dst = os.path.join(tmp_path, ACL_RULE_PERSISTENT_DEL_FILE)
     dut.copy(src=os.path.join(FILES_DIR, ACL_RULE_PERSISTENT_DEL_FILE), dest=dst)
     dut.command("acl-loader update full {}".format(dst))
-    dut.command('config mirror_session remove {}'.format(SESSION_NAME))
-    dut.command('rm -rf {}'.format(MIRROR_RUN_DIR))
-
+    dut.command('config mirror_session remove {}'.format(SESSION_INFO['name']))
 
 
 @pytest.fixture(scope='function', params=['acl', 'mirroring'], autouse=True)
@@ -215,7 +233,6 @@ def config(request):
     fixture to add configurations on setup by received parameters.
     """
     return request.getfixturevalue(request.param)
-
 
 
 def test_techsupport(request, config, duthost, testbed):
@@ -228,7 +245,7 @@ def test_techsupport(request, config, duthost, testbed):
     loop_range = request.config.getoption("--loop_num") or DEFAULT_LOOP_RANGE
     loop_delay = request.config.getoption("--loop_delay") or DEFAULT_LOOP_DELAY
     since = request.config.getoption("--logs_since") or randint(1, 60)
-    
+
     logger.debug("loop range is {} and loop delay is {}".format(loop_range, loop_delay))
 
     for i in range(loop_range):
@@ -236,5 +253,3 @@ def test_techsupport(request, config, duthost, testbed):
         duthost.command("show techsupport --since='{} minute ago'".format(since))
         logger.debug("Sleeping for {} seconds".format(loop_delay))
         time.sleep(loop_delay)
-
-
