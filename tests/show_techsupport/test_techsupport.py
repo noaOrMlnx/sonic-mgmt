@@ -1,12 +1,9 @@
 import pytest
 import os
-import ptf
-import ptf.testutils as testutils
 import pprint
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 import time
 from random import randint
-from ansible.module_utils.basic import *
 from log_messages import *
 import logging
 logger = logging.getLogger(__name__)
@@ -41,6 +38,7 @@ SESSION_INFO = {
 }
 
 # ACL PART #
+
 
 def setup_acl_rules(duthost, acl_setup):
     """
@@ -171,7 +169,6 @@ def gre_version(duthost):
         SESSION_INFO['gre'] = 0x6558
 
 
-
 @pytest.fixture(scope='function')
 def mirroring(duthost, neighbor_ip, mirror_setup, gre_version):
     """
@@ -200,7 +197,7 @@ def mirroring(duthost, neighbor_ip, mirror_setup, gre_version):
 
     try:
         yield
-    finally: 
+    finally:
         loganalyzer = LogAnalyzer(ansible_host=duthost, marker_prefix='acl')
         loganalyzer.load_common_config()
 
@@ -253,3 +250,4 @@ def test_techsupport(request, config, duthost, testbed):
         duthost.command("show techsupport --since='{} minute ago'".format(since))
         logger.debug("Sleeping for {} seconds".format(loop_delay))
         time.sleep(loop_delay)
+
