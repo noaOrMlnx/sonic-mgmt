@@ -52,17 +52,17 @@ def setup_acl_rules(duthost, acl_setup):
     name = ACL_TABLE_NAME
     dut_conf_file_path = os.path.join(acl_setup['dut_tmp_dir'], 'acl_rules_{}.json'.format(name))
 
-    logger.info('generating config for ACL rules, ACL table {}'.format(name))
+    logger.info('Generating configurations for ACL rules, ACL table {}'.format(name))
     extra_vars = {
         'acl_table_name':  name,
     }
-    logger.info('extra variables for ACL table:\n{}'.format(pprint.pformat(extra_vars)))
+    logger.info('Extra variables for ACL table:\n{}'.format(pprint.pformat(extra_vars)))
     duthost.host.options['variable_manager'].extra_vars.update(extra_vars)
 
     duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULES_FULL_TEMPLATE),
                                         dest=dut_conf_file_path)
 
-    logger.info('applying {}'.format(dut_conf_file_path))
+    logger.info('Applying {}'.format(dut_conf_file_path))
     duthost.command('config acl update full {}'.format(dut_conf_file_path))
 
 
@@ -73,16 +73,13 @@ def acl_setup(duthost):
     :param duthost: DUT host object
     :return: dictionary with all test required information
     """
-    logger.info('creating temporary folder for test {}'.format(ACL_TMP_DIR))
+    logger.info('Creating temporary folder for test {}'.format(ACL_TMP_DIR))
     duthost.command("mkdir -p {}".format(ACL_TMP_DIR))
     tmp_path = duthost.tempfile(path=ACL_TMP_DIR, state='directory', prefix='acl', suffix="")['path']
 
     setup_information = {
         'dut_tmp_dir': tmp_path,
     }
-
-    logger.info('setup variables {}'.format(pprint.pformat(setup_information)))
-
     yield setup_information
 
 
@@ -94,12 +91,11 @@ def teardown_acl(dut, acl_setup):
     :return:
     """
     dst = acl_setup['dut_tmp_dir']
-    logger.info('removing all ACL rules')
+    logger.info('Removing all ACL rules')
     # copy rules remove configuration
     dut.copy(src=os.path.join(FILES_DIR, ACL_REMOVE_RULES_FILE), dest=dst)
     remove_rules_dut_path = os.path.join(dst, ACL_REMOVE_RULES_FILE)
     # remove rules
-    logger.info('applying {}'.format(remove_rules_dut_path))
     dut.command('config acl update full {}'.format(remove_rules_dut_path))
 
 
@@ -149,14 +145,12 @@ def mirror_setup(duthost):
     """
     setup fixture
     """
-    logger.debug("creating running directory ...")
     duthost.command('mkdir -p {}'.format(MIRROR_RUN_DIR))
     tmp_path = duthost.tempfile(path=MIRROR_RUN_DIR, state='directory', prefix='mirror', suffix="")['path']
 
     setup_info = {
         'dut_tmp_dir': tmp_path,
     }
-    logger.info('setup variables {}'.format(pprint.pformat(setup_info)))
     yield setup_info
 
 
@@ -183,7 +177,7 @@ def mirroring(duthost, neighbor_ip, mirror_setup, gre_version):
     extra_vars = {
         'acl_table_name':  EVERFLOW_TABLE_NAME,
     }
-    logger.info('extra variables for MIRROR table:\n{}'.format(pprint.pformat(extra_vars)))
+    logger.info('Extra variables for MIRROR table:\n{}'.format(pprint.pformat(extra_vars)))
     duthost.host.options['variable_manager'].extra_vars.update(extra_vars)
 
     duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULE_PERSISTENT_J2), dest=acl_rule_file)
@@ -216,7 +210,7 @@ def teardown_mirroring(dut, tmp_path):
     :param setup: setup information
     :return:
     """
-    logger.info('removing MIRRORING rules')
+    logger.info('Removing Mirroring rules')
     # copy rules remove configuration
     dst = os.path.join(tmp_path, ACL_RULE_PERSISTENT_DEL_FILE)
     dut.copy(src=os.path.join(FILES_DIR, ACL_RULE_PERSISTENT_DEL_FILE), dest=dst)
@@ -243,7 +237,7 @@ def test_techsupport(request, config, duthost, testbed):
     loop_delay = request.config.getoption("--loop_delay") or DEFAULT_LOOP_DELAY
     since = request.config.getoption("--logs_since") or randint(1, 60)
 
-    logger.debug("loop range is {} and loop delay is {}".format(loop_range, loop_delay))
+    logger.debug("Loop_range is {} and loop_delay is {}".format(loop_range, loop_delay))
 
     for i in range(loop_range):
         logger.debug("Running show techsupport ... ")
