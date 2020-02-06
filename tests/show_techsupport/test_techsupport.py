@@ -4,26 +4,28 @@ import pprint
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 import time
 from random import randint
+from common.utilities import wait_until
 from log_messages import *
 import logging
 logger = logging.getLogger(__name__)
 
+SUCCESS_CODE = 0
 DEFAULT_LOOP_RANGE = 10
 DEFAULT_LOOP_DELAY = 10
 
-BASE_DIR = os.path.dirname(os.path.realpath(__file__))
-ACL_TMP_DIR = os.path.basename('acl_tmp')
+pytest.tar_stdout = ""
 
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 FILES_DIR = os.path.join(BASE_DIR, 'files')
 TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
 
+ACL_RUN_DIR = os.path.basename('acl_tmp')
 ACL_RULES_FULL_TEMPLATE = 'acltb_test_rules.j2'
+ACL_RULE_PERSISTENT_TEMPLATE = 'acl_rule_persistent.json.j2'
 ACL_REMOVE_RULES_FILE = 'acl_rules_del.json'
 ACL_RULE_PERSISTENT_FILE = 'acl_rule_persistent.json'
 ACL_RULE_PERSISTENT_DEL_FILE = 'acl_rule_persistent-del.json'
-ACL_RULE_PERSISTENT_J2 = 'acl_rule_persistent.json.j2'
 ACL_TABLE_NAME = 'DATAACL'
-
 MIRROR_RUN_DIR = os.path.basename('mirror_tmp')
 
 EVERFLOW_TABLE_NAME = "EVERFLOW"
@@ -43,7 +45,7 @@ SESSION_INFO = {
 def setup_acl_rules(duthost, acl_setup):
     """
     setup rules on DUT
-    :param dut: dut host
+    :param dut: DUT host
     :param setup: setup information
     :param acl_table: acl table creating fixture
     :return:
@@ -73,9 +75,9 @@ def acl_setup(duthost):
     :param duthost: DUT host object
     :return: dictionary with all test required information
     """
-    logger.info('Creating temporary folder for test {}'.format(ACL_TMP_DIR))
-    duthost.command("mkdir -p {}".format(ACL_TMP_DIR))
-    tmp_path = duthost.tempfile(path=ACL_TMP_DIR, state='directory', prefix='acl', suffix="")['path']
+    logger.info('Creating temporary folder for test {}'.format(ACL_RUN_DIR))
+    duthost.command("mkdir -p {}".format(ACL_RUN_DIR))
+    tmp_path = duthost.tempfile(path=ACL_RUN_DIR, state='directory', prefix='acl', suffix="")['path']
 
     setup_information = {
         'dut_tmp_dir': tmp_path,
@@ -158,7 +160,7 @@ def mirror_setup(duthost):
 def gre_version(duthost):
     asic_type = duthost.facts['asic_type']
     if asic_type in ["mellanox"]:
-        SESSION_INFO['gre'] = 0x8949 # Mellanox specific
+        SESSION_INFO['gre'] = 0x8949  # Mellanox specific
     else:
         SESSION_INFO['gre'] = 0x6558
 
@@ -167,12 +169,12 @@ def gre_version(duthost):
 def mirroring(duthost, neighbor_ip, mirror_setup, gre_version):
     """
     fixture gathers all configuration fixtures
-    :param duthost: dut host
+    :param duthost: DUT host
     :param mirror_setup: mirror_setup fixture
     :param mirror_config: mirror_config fixture
     """
 
-    logger.info("Adding mirror_session to dut")
+    logger.info("Adding mirror_session to DUT")
     acl_rule_file = os.path.join(mirror_setup['dut_tmp_dir'], ACL_RULE_PERSISTENT_FILE)
     extra_vars = {
         'acl_table_name':  EVERFLOW_TABLE_NAME,
@@ -180,7 +182,7 @@ def mirroring(duthost, neighbor_ip, mirror_setup, gre_version):
     logger.info('Extra variables for MIRROR table:\n{}'.format(pprint.pformat(extra_vars)))
     duthost.host.options['variable_manager'].extra_vars.update(extra_vars)
 
-    duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULE_PERSISTENT_J2), dest=acl_rule_file)
+    duthost.template(src=os.path.join(TEMPLATE_DIR, ACL_RULE_PERSISTENT_TEMPLATE), dest=acl_rule_file)
     duthost.command('config mirror_session add {} {} {} {} {} {} {}'
     .format(SESSION_INFO['name'], SESSION_INFO['src_ip'], neighbor_ip,
      SESSION_INFO['dscp'], SESSION_INFO['ttl'], SESSION_INFO['gre'], SESSION_INFO['queue']))
@@ -222,26 +224,41 @@ def teardown_mirroring(dut, tmp_path):
 def config(request):
     """
     fixture to add configurations on setup by received parameters.
+    The parameters expected in request are the avaiable additional configurations.
+    e.g. : test_techsupport[acl]
     """
     return request.getfixturevalue(request.param)
 
+
+def execute_command(duthost, since):
+    """
+    Function to execute show techsupport command
+    :param duthost: DUT
+    :param since: since string enterd by user
+    """
+    stdout = duthost.command("show techsupport --since={}".format('"' + since + '"'))
+    if stdout['rc'] == SUCCESS_CODE:
+        pytest.tar_stdout = stdout['stdout']
+    return stdout['rc'] == SUCCESS_CODE
+        
 
 def test_techsupport(request, config, duthost, testbed):
     """
     test the "show techsupport" command in a loop
     :param config: fixture to configure additional setups_list on dut.
-    :param duthost: dut host
+    :param duthost: DUT host
     :param testbed: testbed
     """
     loop_range = request.config.getoption("--loop_num") or DEFAULT_LOOP_RANGE
     loop_delay = request.config.getoption("--loop_delay") or DEFAULT_LOOP_DELAY
-    since = request.config.getoption("--logs_since") or randint(1, 60)
+    since = request.config.getoption("--logs_since") or str(randint(1, 23)) + " minute ago"
 
     logger.debug("Loop_range is {} and loop_delay is {}".format(loop_range, loop_delay))
 
     for i in range(loop_range):
         logger.debug("Running show techsupport ... ")
-        duthost.command("show techsupport --since='{} minute ago'".format(since))
+        wait_until(300, 20, execute_command, duthost, since)
+        tar_file = [i for i in pytest.tar_stdout.split('\n') if i != ''][-1]
+        stdout = duthost.command("rm -rf {}".format(tar_file))
         logger.debug("Sleeping for {} seconds".format(loop_delay))
         time.sleep(loop_delay)
-
