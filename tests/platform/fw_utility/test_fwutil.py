@@ -8,7 +8,6 @@ import json
 import requests
 import random
 from common import reboot
-from urlparse import urlparse
 from psu_controller import psu_controller
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 import yaml
@@ -270,7 +269,7 @@ def get_fw_path(request, testbed_devices, components_list):
     :param components_list: list of components
     """
     dut = testbed_devices["dut"]
-    binaries_path = request.config.getoption("--binaries_path") or request.config.getoption("--binaries_url")
+    binaries_path = request.config.getoption("--binaries_path")
     if binaries_path is None:
         pytest.fail("Missing Arguments")
     yield process_versions(dut, components_list, binaries_path)
