@@ -169,7 +169,6 @@ def bios_update(request, dut):
     assert check_pmon_daemon_status(dut), "Not all pmon daemons running."
 
     if dut.facts["asic_type"] in ["mellanox"]:
-        pdb.set_trace()
         current_file_dir = os.path.dirname(os.path.realpath(__file__))
         parent_dir = os.path.abspath(os.path.join(current_file_dir, os.pardir))
         sub_folder_dir = os.path.join(parent_dir, "mellanox")
@@ -189,7 +188,6 @@ def cpld_update(request, dut):
     """
     performs 30 sec power cycle off to finish cpld installation.
     """
-    pdb.set_trace()
     cmd_num_psu = "sudo psuutil numpsus"
     logging.info("Check how much PSUs DUT has")
     psu_num_out = dut.command(cmd_num_psu)
@@ -203,7 +201,6 @@ def cpld_update(request, dut):
     psu_control = request.getfixturevalue("psu_ctrl")
     if psu_control is None:
         pytest.fail("No PSU controller for %s, skip rest of the testing in this case" % dut.hostname)
-    pdb.set_trace()
     all_psu_status = psu_control.get_psu_status()
     if all_psu_status:
         for psu in all_psu_status:
