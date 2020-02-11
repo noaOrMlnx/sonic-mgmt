@@ -26,7 +26,6 @@ UNVALID_URL_LOG = '.*Error: Did not receive a response from remote machine. Abor
 
 
 def parse_bios_version(files_path, file_name):
-    pdb.set_trace()
     fw_path = os.path.join(files_path, file_name)
     release_path = os.path.realpath(fw_path)
     ver = os.path.dirname(release_path).rsplit('/', 1)[1]
