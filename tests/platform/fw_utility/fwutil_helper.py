@@ -11,7 +11,6 @@ from check_daemon_status import check_pmon_daemon_status
 
 import logging
 logger = logging.getLogger(__name__)
-
 FW_UTIL_DATA = {}
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 BINARIES_DIR = os.path.join(BASE_DIR, 'binaries')
@@ -23,10 +22,12 @@ FW_INSTALL_SUCCESS_LOG = "*.Firmware install ended * status=success*."
 UNVALID_NAME_LOG = '.*Invalid value for "<component_name>"*.'
 UNVALID_PATH_LOG = '.*Error: Invalid value for "fw_path"*.'
 UNVALID_URL_LOG = '.*Error: Did not receive a response from remote machine. Aborting...*.'
+INVALID_PLATFORM_SCHEMA_LOG = '.*Error: Failed to parse "platform_components.json": invalid platform schema*.'
+INVALID_CHASSIS_SCHEMA_LOG = '.*Error: Failed to parse "platform_components.json": invalid chassis schema*.'
+INVALID_COMPONENT_SCHEMA_LOG = '.*Error: Failed to parse "platform_components.json": invalid component schema*.'
 
 
 def parse_bios_version(files_path, file_name):
-    pdb.set_trace()
     fw_path = os.path.join(files_path, file_name)
     release_path = os.path.realpath(fw_path)
     ver = os.path.dirname(release_path).rsplit('/', 1)[1]
@@ -96,7 +97,9 @@ def parse_cpld_version(files_path, file_name, fw_data):
     if counts == current_counts:
         is_latest = True
 
-    return counts, is_latest
+    # TODO: for now returning only version and that is not latest
+    return fw_data['CPLD']['version'], False
+    # return counts, is_latest
 
 
 def cpld_version(dut, files_path, fw_data):
@@ -115,13 +118,17 @@ def cpld_version(dut, files_path, fw_data):
         if file_name.startswith(latest):
             latest_ver, is_latest = parse_cpld_version(files_path, file_name, fw_data)
             latest_fw_path = os.path.join(files_path, file_name)
+        if file_name.startswith(other):
+            other_ver, is_other = parse_cpld_version(files_path, file_name, fw_data)
+            other_fw_path = os.path.join(files_path, file_name)
 
     versions = {
         'latest_version': latest_ver,
         'latest_path': latest_fw_path,
-        'latest_installed': is_latest,
-        'other_version': '',
-        'other_path': ''
+        # 'latest_installed': is_latest,
+        'latest_installed': False,
+        'other_version': other_ver,
+        'other_path': other_fw_path
     }
     return versions
 
@@ -170,7 +177,6 @@ def bios_update(request, dut):
     assert check_pmon_daemon_status(dut), "Not all pmon daemons running."
 
     if dut.facts["asic_type"] in ["mellanox"]:
-        pdb.set_trace()
         current_file_dir = os.path.dirname(os.path.realpath(__file__))
         parent_dir = os.path.abspath(os.path.join(current_file_dir, os.pardir))
         sub_folder_dir = os.path.join(parent_dir, "mellanox")
@@ -190,7 +196,6 @@ def cpld_update(request, dut):
     """
     performs 30 sec power cycle off to finish cpld installation.
     """
-    pdb.set_trace()
     cmd_num_psu = "sudo psuutil numpsus"
     logging.info("Check how much PSUs DUT has")
     psu_num_out = dut.command(cmd_num_psu)
@@ -204,7 +209,6 @@ def cpld_update(request, dut):
     psu_control = request.getfixturevalue("psu_ctrl")
     if psu_control is None:
         pytest.fail("No PSU controller for %s, skip rest of the testing in this case" % dut.hostname)
-    pdb.set_trace()
     all_psu_status = psu_control.get_psu_status()
     if all_psu_status:
         for psu in all_psu_status:
