@@ -4,7 +4,6 @@ from fwutil_helper import *
 from psu_controller import psu_controller
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 import yaml
-import pdb
 
 
 @pytest.fixture(scope='function')
@@ -42,7 +41,6 @@ def backup_platform_file(testbed_devices):
     """
     backup the original platform_components.json file
     """
-    pdb.set_trace()
     dut = testbed_devices["dut"]
     platform_type = dut.facts['platform']
     platform_comp_path = '/usr/share/sonic/device/' + platform_type + '/platform_components.json'
