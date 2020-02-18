@@ -5,7 +5,6 @@ import time
 import sys
 import json
 import random
-import pdb
 from common.utilities import wait_until
 from fwutil_helper import *
 from loganalyzer import LogAnalyzer, LogAnalyzerError
@@ -543,7 +542,6 @@ def test_update_positive(request, testbed_devices, components_list, get_fw_path,
     Performs update from current image and from next image.
     NOTICE: The next image should be an image with fwutil feature
     """
-    pdb.set_trace()
     dut = testbed_devices["dut"]
     update_from_current_img(request, dut, get_fw_path, components_list)
     update_from_next_img(request, testbed_devices, get_fw_path, components_list)
