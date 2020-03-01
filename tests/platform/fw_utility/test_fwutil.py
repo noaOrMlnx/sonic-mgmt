@@ -3,7 +3,6 @@ import re
 import pytest
 import json
 import random
-import pdb
 from fwutil_helper import *
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 
@@ -18,7 +17,6 @@ def test_show_positive(testbed_devices, components_list):
     :param testbed_devices
     :param components_list: fixture with all expected components
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
     fw_data = get_output_data(dut)
     for comp in components_list:
@@ -30,7 +28,6 @@ def test_install_positive(request, testbed_devices, testbed, get_fw_path, compon
     """
     performs fw installation from local path.
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
 
     # copy fw to dut and install
@@ -71,7 +68,6 @@ def test_install_negative(request, testbed_devices, get_fw_path):
     """
     Tries to install invalid FW and checks the expected errors occures.
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
     # invalid component name
     cmd = 'fwutil install chassis component {} fw -y {}'.format('UNVALID_FW_NAME', get_fw_path['path_to_install'])
@@ -89,7 +85,6 @@ def test_update_positive(request, testbed_devices, components_list, component_ob
     Performs update from current image and from next image.
     NOTICE: The next image should be an image with fwutil feature
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
     update_from_current_img(request, dut, get_fw_path, components_list, component_object)
     update_from_next_img(request, testbed_devices, get_fw_path, components_list, component_object)
@@ -97,7 +92,6 @@ def test_update_positive(request, testbed_devices, components_list, component_ob
 
 @pytest.mark.disable_loganalyzer
 def test_update_negative(request, testbed_devices, components_list, backup_platform_file):
-    pdb.set_trace()
     """
     Try to update with wrong platform_components.json file and check errors occure.
     """

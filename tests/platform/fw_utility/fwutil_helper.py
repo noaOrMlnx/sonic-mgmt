@@ -10,7 +10,6 @@ from check_critical_services import check_critical_services
 from check_daemon_status import check_pmon_daemon_status
 import re
 from common.utilities import wait_until
-import pdb
 
 import logging
 logger = logging.getLogger(__name__)
@@ -268,7 +267,6 @@ class CpldComponent(FwComponent):
             assert False, "Unable to get the number of PSUs using command '%s'" % cmd_num_psu
 
         logging.info("Create PSU controller for testing")
-        pdb.set_trace()
         psu_c = request.getfixturevalue("psu_controller")
         psu_control = psu_c(dut.hostname, dut.facts['asic_type'])
         if psu_control is None:
@@ -521,7 +519,6 @@ def update_from_next_img(request, testbed_devices, get_fw_path, components_list,
     """
     update from next image test case.
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
     # setup
     request.getfixturevalue('setup_images')

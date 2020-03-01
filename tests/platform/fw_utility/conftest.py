@@ -4,7 +4,6 @@ from fwutil_helper import *
 from psu_controller import psu_controller
 from loganalyzer import LogAnalyzer, LogAnalyzerError
 import yaml
-import pdb
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -17,7 +16,6 @@ def get_fw_path(request, testbed_devices, components_list, component_object):
     :param testbed_devices
     :param components_list: list of components
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
     binaries_path = request.config.getoption("--binaries_path")
     if binaries_path is None:
@@ -77,7 +75,6 @@ def setup_images(request, testbed_devices, get_fw_path, components_list):
     setup part of 'update from next image test' case.
     backup both images files and generate new json files.
     """
-    pdb.set_trace()
     dut = testbed_devices['dut']
     set_next_boot(request, dut)
     image_info = get_image_info(dut)
