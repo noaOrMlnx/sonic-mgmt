@@ -21,7 +21,6 @@ def prepare_ptf(testbed_devices):
 
 
 def lag_facts(dut):
-    pdb.set_trace()
     facts = {}
     mg_facts = dut.minigraph_facts(host=dut.hostname)['ansible_facts']
     if not mg_facts['minigraph_portchannels'] or len(mg_facts['minigraph_portchannels']) == 0:
@@ -144,7 +143,6 @@ def run_test_ipv4(ptfadapter, gather_facts):
 
 
 def test_dip_sip(request, gather_facts):
-    pdb.set_trace()
     ptfadapter = request.getfixturevalue('ptfadapter')
     ptfadapter.reinit()
 
