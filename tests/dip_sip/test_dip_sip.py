@@ -1,8 +1,9 @@
-import os
 import pytest
 import ptf.testutils as testutils
-import ptf.packet as packet
 from ipaddress import ip_address
+import logging
+
+logger = logging.getLogger(__name__)
 
 TOPO_LIST = {'t0', 't1', 't1-lag'}
 PORTS_TOPO = {'t1'}
@@ -21,11 +22,10 @@ def prepare_ptf(testbed_devices):
 
 
 def lag_facts(dut):
-    pdb.set_trace()
     facts = {}
     mg_facts = dut.minigraph_facts(host=dut.hostname)['ansible_facts']
-    if not mg_facts['minigraph_portchannels'] or len(mg_facts['minigraph_portchannels']) == 0:
-        pytest.fail("minigraph_portchannels is not defined or zero length")
+    if not mg_facts['minigraph_portchannels']:
+        pytest.fail("minigraph_portchannels is not defined")
     host_facts = dut.setup()['ansible_facts']
     # minigraph facts
     src_lag = mg_facts['minigraph_portchannel_interfaces'][2]['attachto']
@@ -42,7 +42,6 @@ def lag_facts(dut):
     facts['dst_router_ipv4'] = host_facts['ansible_' + dst_lag]['ipv4']['address']
     dst_ipv6 = host_facts['ansible_' + dst_lag]['ipv6']
     facts['dst_router_ipv6'] = [(item['address']) for item in dst_ipv6 if item['scope'] == 'global'][0]
-    src_ipv6 = host_facts['ansible_' + src_lag]['ipv6']
     facts['dst_port_ids'] = [mg_facts['minigraph_port_indices'][mg_facts['minigraph_portchannels'][dst_lag]['members'][0]]]
     facts['src_port_ids'] = [mg_facts['minigraph_port_indices'][mg_facts['minigraph_portchannels'][src_lag]['members'][0]]]
 
@@ -53,8 +52,8 @@ def port_facts(dut):
     facts = {}
     mg_facts = dut.minigraph_facts(host=dut.hostname)['ansible_facts']
 
-    if not mg_facts['minigraph_interfaces'] or len(mg_facts['minigraph_interfaces']) == 0:
-        pytest.fail("minigraph_interfaces is not defined or zero length")
+    if not mg_facts['minigraph_interfaces']:
+        pytest.fail("minigraph_interfaces is not defined.")
     host_facts = dut.setup()['ansible_facts']
     # minigraph facts
     src_port = mg_facts['minigraph_interfaces'][2]['attachto']
@@ -70,7 +69,6 @@ def port_facts(dut):
     facts['dst_router_ipv4'] = host_facts['ansible_' + dst_port]['ipv4']['address']
     dst_ipv6 = host_facts['ansible_' + dst_port]['ipv6']
     facts['dst_router_ipv6'] = [(item['address']) for item in dst_ipv6 if item['scope'] == 'global'][0]
-    src_ipv6 = host_facts['ansible_' + src_port]['ipv6']
     facts['dst_port_ids'] = [mg_facts['minigraph_port_indices'][dst_port]]
     facts['src_port_ids'] = [mg_facts['minigraph_port_indices'][src_port]]
 
@@ -83,7 +81,7 @@ def gather_facts(testbed_devices, testbed):
     topo = testbed['topo']['name']
     if topo not in TOPO_LIST:
         pytest.skip("Unsupported topology")
-
+    logger.info("Gathering facts on DUT ...")
     dut = testbed_devices["dut"]
     if topo in PORTS_TOPO:
         facts = port_facts(dut)
@@ -92,10 +90,12 @@ def gather_facts(testbed_devices, testbed):
     else:
         pytest.skip("Unsupported topology")
 
+    logger.info("Facts gathered successfully")
     yield facts
 
 
 def run_test_ipv6(ptfadapter, gather_facts):
+    logger.info("Running test with ipv6 packets")
     dst_host_ipv6 = str(ip_address(unicode(gather_facts['dst_router_ipv6']))+1)
 
     pkt = testutils.simple_udpv6_packet(
@@ -120,6 +120,7 @@ def run_test_ipv6(ptfadapter, gather_facts):
 
 
 def run_test_ipv4(ptfadapter, gather_facts):
+    logger.info("Running test with ipv4 packets")
     dst_host_ipv4 = str(ip_address(unicode(gather_facts['dst_router_ipv4'])) + 1)
 
     pkt = testutils.simple_udp_packet(
@@ -144,9 +145,7 @@ def run_test_ipv4(ptfadapter, gather_facts):
 
 
 def test_dip_sip(request, gather_facts):
-    pdb.set_trace()
     ptfadapter = request.getfixturevalue('ptfadapter')
     ptfadapter.reinit()
-
     run_test_ipv4(ptfadapter, gather_facts)
     run_test_ipv6(ptfadapter, gather_facts)
