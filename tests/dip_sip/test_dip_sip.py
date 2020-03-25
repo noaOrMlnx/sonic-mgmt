@@ -8,6 +8,7 @@ PORTS_TOPO = {'t1'}
 LAG_TOPO = {'t0', 't1-lag'}
 DEFAULT_HLIM_TTL = 64
 WAIT_EXPECTED_PACKET_TIMEOUT = 5
+
 logger = logging.getLogger(__name__)
 
 
