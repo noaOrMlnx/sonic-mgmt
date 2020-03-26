@@ -10,9 +10,7 @@ from check_critical_services import check_critical_services
 from check_daemon_status import check_pmon_daemon_status
 import re
 from common.utilities import wait_until
-
 import logging
-logger = logging.getLogger(__name__)
 
 FW_UTIL_DATA = {}
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -29,46 +27,48 @@ INVALID_PLATFORM_SCHEMA_LOG = '.*Error: Failed to parse "platform_components.jso
 INVALID_CHASSIS_SCHEMA_LOG = '.*Error: Failed to parse "platform_components.json": invalid chassis schema*.'
 INVALID_COMPONENT_SCHEMA_LOG = '.*Error: Failed to parse "platform_components.json": invalid component schema*.'
 
+logger = logging.getLogger(__name__)
 
-class FwComponent():
+
+class FwComponent(object):
 
     def get_version(self, dut, files_path, fw_data):
-        pass
+        raise NotImplemented
 
     def update_fw(self, request, dut):
-        pass
+        raise NotImplemented
 
     def check_version(self, version_to_install, comp_data):
-        pass
+        raise NotImplemented
 
     def get_component_name(self):
-        pass
+        raise NotImplemented
 
-    def process_versions(self, dut, components_list, location):
+    def process_versions(self, dut, location):
         """
         process latest/other versions of arbitrary picked component
         """
         comp_versions = self.get_version(dut, files_path=location, fw_data=get_output_data(dut))
 
         if comp_versions['latest_installed']:
-            is_latest = True
-            current = comp_versions['latest_path']
-            fw_path = comp_versions['other_path']
+            is_latest_installed = True
+            current_fw_path = comp_versions['latest_path']
+            fw_path_to_install = comp_versions['other_path']
             version_to_install = comp_versions['other_version']
             previous_ver = comp_versions['latest_version']
 
         else:
-            is_latest = False
-            current = comp_versions['other_path']
-            fw_path = comp_versions['latest_path']
+            is_latest_installed = False
+            current_fw_path = comp_versions['other_path']
+            fw_path_to_install = comp_versions['latest_path']
             version_to_install = comp_versions['latest_version']
             previous_ver = comp_versions['other_version']
 
         return {
-            'is_latest_installed': is_latest,
+            'is_latest_installed': is_latest_installed,
             'current_component': self.get_component_name(),
-            'current_fw_path': current,
-            'path_to_install': fw_path,
+            'current_fw_path': current_fw_path,
+            'path_to_install': fw_path_to_install,
             'version_to_install': version_to_install,
             'previous_ver': previous_ver
         }
@@ -245,8 +245,7 @@ class CpldComponent(FwComponent):
         versions = {
             'latest_version': latest_ver,
             'latest_path': latest_fw_path,
-            # 'latest_installed': is_latest,
-            'latest_installed': False,
+            'latest_installed': is_latest,
             'other_version': other_ver,
             'other_path': other_fw_path
         }

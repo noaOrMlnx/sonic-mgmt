@@ -2,11 +2,10 @@ import os
 import re
 import pytest
 import json
-import random
 from fwutil_helper import *
 from loganalyzer import LogAnalyzer, LogAnalyzerError
-
 import logging
+
 logger = logging.getLogger(__name__)
 
 

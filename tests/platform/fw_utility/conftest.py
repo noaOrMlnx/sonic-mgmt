@@ -2,8 +2,8 @@ import os
 import pytest
 from fwutil_helper import *
 from psu_controller import psu_controller
-from loganalyzer import LogAnalyzer, LogAnalyzerError
 import yaml
+import random
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -127,5 +127,4 @@ def setup_images(request, testbed_devices, get_fw_path, components_list):
 @pytest.fixture(scope='function')
 def component_object(components_list):
     current_comp = random.choice(components_list)
-    current_comp = 'CPLD'
     yield globals()[current_comp.lower().capitalize() + 'Component']()
