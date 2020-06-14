@@ -4,6 +4,7 @@ import scapy
 import re
 from drop_packets import *
 from ptf.testutils import *
+from common.helpers.assertions import pytest_assert
 
 logger = logging.getLogger(__name__)
 
