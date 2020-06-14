@@ -3,6 +3,7 @@ import logging
 import scapy
 import re
 from drop_packets import *
+from ptf.testutils import *
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +135,11 @@ def do_test():
         # send packet
         send_packets(pkt, duthost, ptfadapter, ports_info["ptf_tx_port_id"])
         # verify packet is dropped
-        if comparable_pkt:
-            pkt = comparable_pkt
         exp_pkt = expected_packet_mask(pkt)
         testutils.verify_no_packet_any(ptfadapter, exp_pkt, ports=sniff_ports)
         # verify wjh table
+        if comparable_pkt:
+            pkt = comparable_pkt
         if not verify_drop_on_wjh_table(duthost, pkt, ports_info, sniff_ports):
             pytest.fail("Drop hasn't found in WJH table.")
 
@@ -147,57 +148,32 @@ def do_test():
 
 @pytest.fixture(scope='module', autouse=True)
 def check_global_configuration(duthost):
-    stdout = duthost.command("show what-just-happened configuration global")
-    if stdout['rc'] != 0:
-        raise Exception(stdout['stdout'] + stdout['stderr'])
+    global_conf = {}
+    wjh_global = duthost.shell('/usr/bin/redis-cli -n 4 hgetall "WJH|global"', module_ignore_errors=False)['stdout_lines']
+    pytest_assert(wjh_global is not None, "WJH|global does not exist in config_db")
 
-    stdout = stdout['stdout']
-    output_lines = stdout.splitlines()[2:]  # Skip the header lines in output
-    for line in output_lines:
-        config_line = line.split()
-        if config_line[0] == 'debug':
-            return
+    global_iter = iter(range(len(wjh_global)))
+    for i in global_iter:
+        global_conf[wjh_global[i]] = wjh_global[i+1]
+        next(global_iter, None)
 
-    pytest.skip("Debug mode is not enabled. Skipping test.")
-
-
-def parse_channel_table(table):
-    num_spaces = 2
-    output_data = {}
-    table_lines = table.splitlines()
-    separators = re.split(r'\s{2,}', table.splitlines()[1])  # separators between headers and content
-    headers_line = table_lines[0]
-    headers = []
-    start = 0
-    for sep in separators:
-        curr_len = len(sep)
-        headers.append(headers_line[start:start+curr_len].strip())
-        start += curr_len + num_spaces
-
-    # skip header lines
-    output_lines = table.splitlines()[2:]
-    for line in output_lines:
-        data = []
-        start = 0
-        for i in range(len(separators)):
-            sep = separators[i]
-            curr_len = len(sep)
-            output_data[headers[i]] = line[start:start+curr_len].strip()
-            start += curr_len + num_spaces
-
-    return output_data
+    if global_conf['mode'] != 'debug':
+        pytest.skip("Debug mode is not enabled. Skipping test.")
 
 
 # to be used for checking channels
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='module', autouse=True)
 def get_channel_configuration(duthost):
-    channels = []
-    stdout = duthost.command("show what-just-happened configuration channels")
-    if stdout['rc'] != 0:
-        raise Exception(stdout['stdout'] + stdout['stderr'])
+    channel_conf = {}
+    forwarding = duthost.shell('/usr/bin/redis-cli -n 4 hgetall "WJH_CHANNEL|forwarding"', module_ignore_errors=False)['stdout_lines']
+    pytest_assert(forwarding is not None, "WJH_CHANNEL|forwarding does not exist in config_db")
 
-    channels = parse_channel_table(stdout['stdout'])
-    return channels
+    channels_iter = iter(range(len(forwarding)))
+    for i in channels_iter:
+        channel_conf[forwarding[i]] = forwarding[i+1]
+        next(channels_iter, None)
+
+    return channel_conf
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -205,3 +181,4 @@ def check_feature_enabled(duthost):
     features = duthost.feature_facts()['ansible_facts']['feature_facts']
     if 'what-just-happened' not in features or features['what-just-happened'] != 'enabled':
         pytest.skip("what-just-happened feature is not available. Skipping the test.")
+
