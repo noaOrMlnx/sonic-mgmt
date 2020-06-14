@@ -120,15 +120,6 @@ def verify_drop_on_wjh_table(duthost, pkt, ports_info, sniff_ports):
     return entry_found
 
 
-def send_packets(pkt, duthost, ptfadapter, ptf_tx_port_id):
-    # Clear packets buffer on PTF
-    ptfadapter.dataplane.flush()
-    time.sleep(1)
-    # Send packets
-    testutils.send(ptfadapter, ptf_tx_port_id, pkt)
-    time.sleep(1)
-
-
 @pytest.fixture(scope='module')
 def do_test():
     def do_wjh_test(discard_group, pkt, ptfadapter, duthost, ports_info, sniff_ports, tx_dut_ports=None, comparable_pkt=None):
