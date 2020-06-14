@@ -182,3 +182,59 @@ def check_feature_enabled(duthost):
     if 'what-just-happened' not in features or features['what-just-happened'] != 'enabled':
         pytest.skip("what-just-happened feature is not available. Skipping the test.")
 
+
+def test_tunnel_ip_in_ip(do_test, ptfadapter, duthost, setup, fanouthost, pkt_fields, ports_info):
+    src_ip = pkt_fields['ipv4_src']
+    dst_ip = pkt_fields['ipv4_dst']
+
+    # gather facts
+    dscp_range = list(range(0, 33))
+    ttl_range = list(range(2, 65))
+    router_mac = ports_info['dst_mac']
+    src_mac = ports_info['src_mac']
+    dst_mac = '11:22:33:44:55'
+    dscp_in_idx = 0
+    dscp_out_idx = len(dscp_range) / 2
+    ttl_in_idx = 0
+    ttl_out_idx = len(ttl_range) / 2
+
+    dscp_in = dscp_range[dscp_in_idx]
+    tos_in = dscp_in << 2
+    dscp_out = dscp_range[dscp_out_idx]
+    tos_out = dscp_out << 2
+
+
+    ecn_in = 0
+    ecn_out = 2
+    ttl_in = ttl_range[ttl_in_idx]
+    ttl_in |= ecn_in
+    ttl_out = ttl_range[ttl_out_idx]
+    ttl_out |= ecn_out
+
+    exp_tos = tos_out
+    exp_ttl = ttl_out - 1
+
+    inner_src_ip = '1.1.1.1'
+
+    inner_packet = simple_ip_only_packet(
+                ip_dst=dst_ip,
+                ip_src=inner_src_ip,
+                ip_ttl=ttl_in,
+                ip_tos=tos_in
+    )
+
+    exp_pkt = Ether(dst=dst_mac, src=router_mac) / inner_packet
+    exp_pkt['IP'].tos = exp_tos
+    exp_pkt['IP'].ttl = exp_ttl
+
+    pkt = simple_ipv4ip_packet(
+        eth_dst=router_mac,
+        eth_src=src_mac,
+        ip_src='0.0.0.0',
+        ip_dst=dst_ip,
+        ip_tos=tos_out,
+        ip_ttl=ttl_out,
+        inner_frame=inner_packet
+    )
+
+    do_test("L3", pkt, ptfadapter, duthost, ports_info, setup['neighbor_sniff_ports'])
