@@ -11,8 +11,11 @@ RX_ERR = "RX_ERR"
 L2_COL_KEY = RX_DRP
 L3_COL_KEY = RX_ERR
 
-SKIP_COUNTERS_FOR_MLNX = False
+pytest.SKIP_COUNTERS_FOR_MLNX = False
 MELLANOX_MAC_UPDATE_SCRIPT = os.path.join(os.path.dirname(__file__), "fanout/mellanox/mlnx_update_mac.j2")
+
+LOG_EXPECT_PORT_ADMIN_DOWN_RE = ".*Configure {} admin status to down.*"
+LOG_EXPECT_PORT_ADMIN_UP_RE = ".*Port {} oper state set from down to up.*"
 
 logger = logging.getLogger(__name__)
 
@@ -137,41 +140,6 @@ def setup(duthost, testbed):
 
 
 @pytest.fixture
-def mtu_config(duthost):
-    """ Fixture which prepare port MTU configuration for 'test_ip_pkt_with_exceeded_mtu' test case """
-    class MTUConfig(object):
-        iface = None
-        mtu = None
-        default_mtu = 9100
-
-        @classmethod
-        def set_mtu(cls, mtu, iface):
-            cls.mtu = duthost.command("redis-cli -n 4 hget \"PORTCHANNEL|{}\" mtu".format(iface))["stdout"]
-            if not cls.mtu:
-                cls.mtu = cls.default_mtu
-            if "PortChannel" in iface:
-                duthost.command("redis-cli -n 4 hset \"PORTCHANNEL|{}\" mtu {}".format(iface, mtu))["stdout"]
-            elif "Ethernet" in iface:
-                duthost.command("redis-cli -n 4 hset \"PORT|{}\" mtu {}".format(iface, mtu))["stdout"]
-            else:
-                raise Exception("Unsupported interface parameter - {}".format(iface))
-            cls.iface = iface
-        @classmethod
-        def restore_mtu(cls):
-            if cls.iface:
-                if "PortChannel" in cls.iface:
-                    duthost.command("redis-cli -n 4 hset \"PORTCHANNEL|{}\" mtu {}".format(cls.iface, cls.mtu))["stdout"]
-                elif "Ethernet" in cls.iface:
-                    duthost.command("redis-cli -n 4 hset \"PORT|{}\" mtu {}".format(cls.iface, cls.mtu))["stdout"]
-                else:
-                    raise Exception("Trying to restore MTU on unsupported interface - {}".format(cls.iface))
-
-    yield MTUConfig
-
-    MTUConfig.restore_mtu()
-
-
-@pytest.fixture
 def rif_port_down(duthost, setup, loganalyzer):
     """ Disable RIF interface and return neighbor IP address attached to this interface """
     wait_after_ports_up = 30
@@ -247,13 +215,13 @@ def log_pkt_params(dut_iface, mac_dst, mac_src, ip_dst, ip_src):
     logger.info("Packet IP SRC - {}".format(ip_src))
 
 
-def send_packets(pkt, duthost, ptfadapter, ptf_tx_port_id):
+def send_packets(pkt, duthost, ptfadapter, ptf_tx_port_id, num_packets=1):
     # Clear packets buffer on PTF
     ptfadapter.dataplane.flush()
     time.sleep(1)
 
     # Send packets
-    testutils.send(ptfadapter, ptf_tx_port_id, pkt)
+    testutils.send(ptfadapter, ptf_tx_port_id, pkt, count=num_packets)
     time.sleep(1)
 
 
@@ -265,7 +233,7 @@ def test_equal_smac_dmac_drop(do_test, ptfadapter, duthost, setup, fanouthost, p
     src_mac = ports_info["dst_mac"]
 
     if "mellanox" == duthost.facts["asic_type"]:
-        SKIP_COUNTERS_FOR_MLNX = True
+        pytest.SKIP_COUNTERS_FOR_MLNX = True
         src_mac = "00:00:00:00:00:11"
         # Prepare openflow rule
         fanouthost.update_config(template_path=MELLANOX_MAC_UPDATE_SCRIPT, match_mac=src_mac, set_mac=ports_info["dst_mac"], eth_field="eth_src")
@@ -301,7 +269,7 @@ def test_multicast_smac_drop(do_test, ptfadapter, duthost, setup, fanouthost, pk
     log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], multicast_smac, pkt_fields["ipv4_dst"], pkt_fields["ipv4_src"])
 
     if "mellanox" == duthost.facts["asic_type"]:
-        SKIP_COUNTERS_FOR_MLNX = True
+        pytest.SKIP_COUNTERS_FOR_MLNX = True
         src_mac = "00:00:00:00:00:11"
         # Prepare openflow rule
         fanouthost.update_config(template_path=MELLANOX_MAC_UPDATE_SCRIPT, match_mac=src_mac, set_mac=multicast_smac, eth_field="eth_src")
@@ -327,50 +295,12 @@ def test_multicast_smac_drop(do_test, ptfadapter, duthost, setup, fanouthost, pk
     do_test("L2", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"], comparable_pkt=comparable_pkt)
 
 
-def test_reserved_dmac_drop(do_test, ptfadapter, duthost, setup, fanouthost, pkt_fields, ports_info):
-    """
-    @summary: Verify that packet with reserved DMAC is dropped and L2 drop counter incremented
-    @used_mac_address:
-        01:80:C2:00:00:05 - reserved for future standardization
-        01:80:C2:00:00:08 - provider Bridge group address
-    """
-    reserved_mac_addr = ["01:80:C2:00:00:05", "01:80:C2:00:00:08"]
-
-    for reserved_dmac in reserved_mac_addr:
-        dst_mac = reserved_dmac
-        if "mellanox" == duthost.facts["asic_type"]:
-            SKIP_COUNTERS_FOR_MLNX = True
-            dst_mac = "00:00:00:00:00:11"
-            # Prepare openflow rule
-            fanouthost.update_config(template_path=MELLANOX_MAC_UPDATE_SCRIPT, match_mac=dst_mac, set_mac=reserved_dmac, eth_field="eth_dst")
-
-        log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], reserved_dmac, pkt_fields["ipv4_dst"], pkt_fields["ipv4_src"])
-        pkt = testutils.simple_tcp_packet(
-            eth_dst=dst_mac,  # DUT port
-            eth_src=ports_info["src_mac"],
-            ip_src=pkt_fields["ipv4_src"],  # PTF source
-            ip_dst=pkt_fields["ipv4_dst"],  # VM source
-            tcp_sport=pkt_fields["tcp_sport"],
-            tcp_dport=pkt_fields["tcp_dport"]
-        )
-
-        comparable_pkt = testutils.simple_tcp_packet(
-            eth_dst=reserved_dmac,  # DUT port
-            eth_src=ports_info["src_mac"],
-            ip_src=pkt_fields["ipv4_src"],  # PTF source
-            ip_dst=pkt_fields["ipv4_dst"],  # VM source
-            tcp_sport=pkt_fields["tcp_sport"],
-            tcp_dport=pkt_fields["tcp_dport"]
-        )
-
-        do_test("L2", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"], comparable_pkt=comparable_pkt)
-
-
 def test_not_expected_vlan_tag_drop(do_test, ptfadapter, duthost, setup, pkt_fields, ports_info):
     """
     @summary: Verify that VLAN tagged packet which VLAN ID does not match ingress port VLAN ID is dropped
               and L2 drop counter incremented
     """
+
     start_vlan_id = 2
     log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], ports_info["src_mac"], pkt_fields["ipv4_dst"], pkt_fields["ipv4_src"])
     max_vlan_id = 1000
@@ -395,36 +325,6 @@ def test_not_expected_vlan_tag_drop(do_test, ptfadapter, duthost, setup, pkt_fie
         )
 
     do_test("L2", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"])
-
-
-def test_ip_pkt_with_exceeded_mtu(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fields, mtu_config, ports_info):
-    """
-    @summary: Verify that IP packet with exceeded MTU is dropped and L3 drop counter incremented
-    """
-    if  "vlan" in tx_dut_ports[ports_info["dut_iface"]].lower():
-        pytest.skip("Test case is not supported on VLAN interface")
-
-    tmp_port_mtu = 1500
-
-    log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], ports_info["src_mac"], pkt_fields["ipv4_dst"],
-                    pkt_fields["ipv4_src"])
-    # Set temporal MTU. This will be restored by 'mtu' fixture
-    mtu_config.set_mtu(tmp_port_mtu, tx_dut_ports[ports_info["dut_iface"]])
-
-    pkt = testutils.simple_tcp_packet(
-        pktlen=9100,
-        eth_dst=ports_info["dst_mac"],  # DUT port
-        eth_src=ports_info["src_mac"],  # PTF port
-        ip_src=pkt_fields["ipv4_src"],  # PTF source
-        ip_dst=pkt_fields["ipv4_dst"],  # VM IP address
-        tcp_sport=pkt_fields["tcp_sport"],
-        tcp_dport=pkt_fields["tcp_dport"]
-        )
-    L2_COL_KEY = RX_ERR
-    try:
-        do_test("L2", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"])
-    finally:
-        L2_COL_KEY = RX_DRP
 
 
 def test_dst_ip_is_loopback_addr(do_test, ptfadapter, duthost, setup, pkt_fields, tx_dut_ports, ports_info):
@@ -590,8 +490,7 @@ def test_ip_is_zero_addr(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_
     do_test("L3", pkt, ptfadapter, duthost, ports_info, setup["dut_to_ptf_port_map"].values(), tx_dut_ports)
 
 
-@pytest.mark.parametrize("addr_direction", ["src", "dst"])
-def test_ip_link_local(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fields, addr_direction, ports_info):
+def test_dst_ip_link_local(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fields, ports_info):
     """
     @summary: Verify that packet with link-local address "169.254.0.0/16" is dropped and L3 drop counter incremented
     """
@@ -603,16 +502,9 @@ def test_ip_link_local(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fi
         "eth_src": ports_info["src_mac"],  # PTF port
         "tcp_sport": pkt_fields["tcp_sport"],
         "tcp_dport": pkt_fields["tcp_dport"]
-        }
-
-    if addr_direction == "src":
-        pkt_params["ip_src"] = link_local_ip
-        pkt_params["ip_dst"] = pkt_fields["ipv4_dst"]  # VM source
-    elif addr_direction == "dst":
-        pkt_params["ip_src"] = pkt_fields["ipv4_src"]  # VM source
-        pkt_params["ip_dst"] = link_local_ip
-    else:
-        pytest.fail("Incorrect value specified for 'addr_direction'. Supported parameters: 'src' and 'dst'")
+    }
+    pkt_params["ip_src"] = pkt_fields["ipv4_src"]  # VM source
+    pkt_params["ip_dst"] = link_local_ip
     pkt = testutils.simple_tcp_packet(**pkt_params)
 
     logger.info(pkt_params)
@@ -630,6 +522,7 @@ def test_loopback_filter(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_
     @summary: Verify that packet drops by loopback-filter. Loop-back filter means that route to the host
               with DST IP of received packet exists on received interface
     """
+
     ip_dst = None
     vm_name = setup["mg_facts"]["minigraph_neighbors"][ports_info["dut_iface"]]["name"]
 
@@ -652,10 +545,12 @@ def test_loopback_filter(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_
 
     do_test("L3", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"], tx_dut_ports)
 
+
 def test_ip_pkt_with_expired_ttl(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fields, ports_info):
     """
     @summary: Verify that IP packet with TTL=0 is dropped and L3 drop counter incremented
     """
+
     log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], ports_info["src_mac"], pkt_fields["ipv4_dst"],
                     pkt_fields["ipv4_src"])
 
@@ -688,6 +583,29 @@ def test_broken_ip_header(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt
         tcp_dport=pkt_fields["tcp_dport"]
         )
     setattr(pkt[testutils.scapy.scapy.all.IP], pkt_field, value)
+
+    do_test("L3", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"], tx_dut_ports)
+
+
+def test_absent_ip_header(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fields, ports_info):
+    """
+    @summary: Verify that packets with absent IP header are dropped and L3 drop counter incremented
+    """
+    log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], ports_info["src_mac"], pkt_fields["ipv4_dst"],
+                    pkt_fields["ipv4_src"])
+
+    pkt = testutils.simple_tcp_packet(
+        eth_dst=ports_info["dst_mac"], # DUT port
+        eth_src=ports_info["src_mac"], # PTF port
+        ip_src=pkt_fields["ipv4_src"], # PTF source
+        ip_dst=pkt_fields["ipv4_dst"],
+        tcp_sport=pkt_fields["tcp_sport"],
+        tcp_dport=pkt_fields["tcp_dport"]
+        )
+    tcp = pkt[testutils.scapy.scapy.all.TCP]
+    del pkt[testutils.scapy.scapy.all.IP]
+    pkt.type = 0x800
+    pkt = pkt/tcp
 
     do_test("L3", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"], tx_dut_ports)
 
@@ -786,22 +704,3 @@ def test_non_routable_igmp_pkts(do_test, ptfadapter, duthost, setup, tx_dut_port
 
     log_pkt_params(ports_info["dut_iface"], ethernet_dst, ports_info["src_mac"], pkt.getlayer("IP").dst, pkt_fields["ipv4_src"])
     do_test("L3", pkt, ptfadapter, duthost, ports_info, setup["dut_to_ptf_port_map"].values(), tx_dut_ports)
-
-
-def test_egress_drop_on_down_link(do_test, ptfadapter, duthost, setup, tx_dut_ports, pkt_fields, rif_port_down, ports_info):
-    """
-    @summary: Verify that packets on ingress port are dropped when egress RIF link is down and check that L3 drop counter incremented
-    """
-    ip_dst = rif_port_down
-    log_pkt_params(ports_info["dut_iface"], ports_info["dst_mac"], ports_info["src_mac"], ip_dst, pkt_fields["ipv4_src"])
-
-    pkt = testutils.simple_tcp_packet(
-        eth_dst=ports_info["dst_mac"],  # DUT port
-        eth_src=ports_info["src_mac"],  # PTF port
-        ip_src=pkt_fields["ipv4_src"],  # PTF source
-        ip_dst=ip_dst,
-        tcp_sport=pkt_fields["tcp_sport"],
-        tcp_dport=pkt_fields["tcp_dport"]
-        )
-
-    do_test("L3", pkt, ptfadapter, duthost, ports_info, setup["neighbor_sniff_ports"], tx_dut_ports)

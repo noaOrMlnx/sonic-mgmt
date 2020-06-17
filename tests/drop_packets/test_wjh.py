@@ -2,17 +2,20 @@ import pytest
 import logging
 import scapy
 import re
+import random
 from drop_packets import *
 from ptf.testutils import *
 from common.helpers.assertions import pytest_assert
 
 logger = logging.getLogger(__name__)
+pytest.CHANNEL_CONF = None
 
 protocols = {
     '0x6'   : 'tcp',
     '0x11'  : 'udp',
     '0x2'   : 'igmp',
-    '0x4'   : 'ipencap'
+    '0x4'   : 'ipencap',
+    '0x1'   : 'icmp'
 }
 
 
@@ -37,7 +40,7 @@ def parse_wjh_table(table):
         curr_len = len(sep)
         headers.append(headers_line[start:start+curr_len].strip())
         start += curr_len + 1
-    # check if headers appears in next line as well (only for Drop Group header)
+    # check if headers appears in next line as well (only for Drop Group header - raw)
     if table_lines[1].strip() == "Group":
         headers[11] = headers[11] + " Group"
         header_lines_num = 3
@@ -55,7 +58,7 @@ def parse_wjh_table(table):
                     break
             # j is the index in the entry
             start_index -= 1
-            if entries[-1][headers[j]].endswith(']'):
+            if (entries[-1][headers[j]].endswith(']') or entries[-1][headers[j]].endswith(':')):
                 space = ''
                 first_space_index = line[start_index:].index(' ')
                 entries[-1][headers[j]] = entries[-1][headers[j]] + space + line[start_index:start_index + first_space_index].strip()
@@ -75,11 +78,10 @@ def parse_wjh_table(table):
         for i in range(len(data)):
             entry[headers[i]] = data[i]
         entries.append(entry)
-
     return entries
 
 
-def get_table_output(duthost):
+def get_raw_table_output(duthost):
     stdout = duthost.command("show what-just-happened")
     if stdout['rc'] != 0:
         raise Exception(stdout['stdout'] + stdout['stderr'])
@@ -87,53 +89,106 @@ def get_table_output(duthost):
     return table_output
 
 
-def verify_drop_on_wjh_table(duthost, pkt, ports_info, sniff_ports):
-    table = get_table_output(duthost)
+def get_agg_table_output(duthost):
+    stdout = duthost.command("show what-just-happened poll --aggregate")
+    if stdout['rc'] != 0:
+        raise Exception(stdout['stdout'] + stdout['stderr'])
+    table_output = parse_wjh_table(stdout['stdout'])
+    return table_output
+
+
+def check_if_entry_exists(table, pkt):
+    entries = []
     entry_found = False
     ip_key = 'IP'
     proto_key = 'proto'
     if ip_key not in pkt:
         ip_key = 'IPv6'
         proto_key = 'nh'
-
     for entry in table:
         src_ip_port = entry['Src IP:Port'].rsplit(':', 1)
         dst_ip_port = entry['Dst IP:Port'].rsplit(':', 1)
-        if (pkt.dst == entry['dMAC'] and
-            pkt.src == entry['sMAC'] and
-            pkt[ip_key].src.lower() == src_ip_port[0].replace('[', '').replace(']', '').lower() and
-            pkt[ip_key].dst.lower() == dst_ip_port[0].replace('[', '').replace(']', '').lower()):
+        if (pkt.dst.lower() == entry['dMAC'].lower() and
+            pkt.src.lower() == entry['sMAC'].lower()):
 
-                if 'TCP' in pkt:
+                if ip_key in pkt:
+                    if isinstance(pkt['IP'].dst, scapy.base_classes.Net):
+                        pkt[ip_key].dst = '0.0.0.0'
+                    if (pkt[ip_key].src.lower() != src_ip_port[0].replace('[', '').replace(']', '').lower() or
+                        pkt[ip_key].dst.lower() != dst_ip_port[0].replace('[', '').replace(']', '').lower()):
+                            continue
+                    if proto_key == 'proto':
+                        if (protocols[hex(pkt[ip_key].proto)] == entry['IP Proto']):
+                            entries.append(entry)
+                            break
+                    else:
+                        if (protocols[hex(pkt[ip_key].nh)] == entry['IP Proto']):
+                            entries.append(entry)
+                            break
+
+                if ('TCP' in pkt and len(src_ip_port) > 1 and len(dst_ip_port) > 1):
                     if (str(pkt['TCP'].sport) != src_ip_port[1] or
                         str(pkt['TCP'].dport) != dst_ip_port[1]):
                             continue
 
-                if proto_key == 'proto':
-                    if (protocols[hex(pkt[ip_key].proto)] == entry['IP Proto']):
-                        entry_found = True
-                        break
-                else:
-                    if (protocols[hex(pkt[ip_key].nh)] == entry['IP Proto']):
-                        entry_found = True
-                        break
+                entries.append(entry)
 
-    return entry_found
+    return entries
+
+
+def verify_drop_on_wjh_raw_table(duthost, pkt, discard_group):
+    table = get_raw_table_output(duthost)
+    entries = check_if_entry_exists(table, pkt)
+    for entry in entries:
+        if discard_group == entry['Drop Group']:
+            return True
+    return False
+
+
+def verify_drop_on_agg_wjh_table(duthost, pkt, num_packets):
+    table = get_agg_table_output(duthost)
+    entries = check_if_entry_exists(table, pkt)
+    for entry in entries:
+        if int(entry['Count']) == num_packets:
+            return True
+    return False
+
+
+def do_raw_test(discard_group, pkt, ptfadapter, duthost, ports_info, sniff_ports, tx_dut_ports=None, comparable_pkt=None):
+    # send packet
+    send_packets(pkt, duthost, ptfadapter, ports_info["ptf_tx_port_id"])
+    # verify packet is dropped
+    exp_pkt = expected_packet_mask(pkt)
+    testutils.verify_no_packet_any(ptfadapter, exp_pkt, ports=sniff_ports)
+    # verify wjh table
+    if comparable_pkt:
+        pkt = comparable_pkt
+    if not verify_drop_on_wjh_raw_table(duthost, pkt, discard_group):
+        pytest.fail("Could not find drop on WJH table. packet: {}".format(pkt))
+
+
+def do_agg_test(discard_group, pkt, ptfadapter, duthost, ports_info, sniff_ports, tx_dut_ports=None, comparable_pkt=None):
+    num_packets = random.randint(2,100)
+    send_packets(pkt, duthost, ptfadapter, ports_info["ptf_tx_port_id"], num_packets=num_packets)
+    # verify packet is dropped
+    exp_pkt = expected_packet_mask(pkt)
+    testutils.verify_no_packet_any(ptfadapter, exp_pkt, ports=sniff_ports)
+    # verify wjh table
+    if comparable_pkt:
+        pkt = comparable_pkt
+    if not verify_drop_on_agg_wjh_table(duthost, pkt, num_packets):
+        pytest.fail("Could not find drop on aggregation WJH table. packet: {}".format(pkt))
 
 
 @pytest.fixture(scope='module')
 def do_test():
     def do_wjh_test(discard_group, pkt, ptfadapter, duthost, ports_info, sniff_ports, tx_dut_ports=None, comparable_pkt=None):
-        # send packet
-        send_packets(pkt, duthost, ptfadapter, ports_info["ptf_tx_port_id"])
-        # verify packet is dropped
-        exp_pkt = expected_packet_mask(pkt)
-        testutils.verify_no_packet_any(ptfadapter, exp_pkt, ports=sniff_ports)
-        # verify wjh table
-        if comparable_pkt:
-            pkt = comparable_pkt
-        if not verify_drop_on_wjh_table(duthost, pkt, ports_info, sniff_ports):
-            pytest.fail("Drop hasn't found in WJH table.")
+        try:
+            if (pytest.CHANNEL_CONF['type'].find('raw') != -1):
+                do_raw_test(discard_group, pkt, ptfadapter, duthost, ports_info, sniff_ports, tx_dut_ports, comparable_pkt)
+        finally:
+            if (pytest.CHANNEL_CONF['type'].find('aggregate') != -1):
+                do_agg_test(discard_group, pkt, ptfadapter, duthost, ports_info, sniff_ports, tx_dut_ports, comparable_pkt)
 
     return do_wjh_test
 
@@ -153,7 +208,6 @@ def check_global_configuration(duthost):
         pytest.skip("Debug mode is not enabled. Skipping test.")
 
 
-# to be used for checking channels
 @pytest.fixture(scope='module', autouse=True)
 def get_channel_configuration(duthost):
     channel_conf = {}
@@ -165,7 +219,7 @@ def get_channel_configuration(duthost):
         channel_conf[forwarding[i]] = forwarding[i+1]
         next(channels_iter, None)
 
-    return channel_conf
+    pytest.CHANNEL_CONF = channel_conf
 
 
 @pytest.fixture(scope='module', autouse=True)
