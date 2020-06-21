@@ -196,7 +196,7 @@ def do_test():
 @pytest.fixture(scope='module', autouse=True)
 def check_global_configuration(duthost):
     global_conf = {}
-    wjh_global = duthost.shell('/usr/bin/redis-cli -n 4 hgetall "WJH|global"', module_ignore_errors=False)['stdout_lines']
+    wjh_global = duthost.shell('sonic-db-cli CONFIG_DB hgetall "WJH|global"', module_ignore_errors=False)['stdout_lines']
     pytest_assert(wjh_global is not None, "WJH|global does not exist in config_db")
 
     global_iter = iter(range(len(wjh_global)))
@@ -211,7 +211,7 @@ def check_global_configuration(duthost):
 @pytest.fixture(scope='module', autouse=True)
 def get_channel_configuration(duthost):
     channel_conf = {}
-    forwarding = duthost.shell('/usr/bin/redis-cli -n 4 hgetall "WJH_CHANNEL|forwarding"', module_ignore_errors=False)['stdout_lines']
+    forwarding = duthost.shell('sonic-db-cli CONFIG_DB hgetall "WJH_CHANNEL|forwarding"', module_ignore_errors=False)['stdout_lines']
     pytest_assert(forwarding is not None, "WJH_CHANNEL|forwarding does not exist in config_db")
 
     channels_iter = iter(range(len(forwarding)))
